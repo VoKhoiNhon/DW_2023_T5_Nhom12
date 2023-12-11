@@ -17,6 +17,7 @@ params = {
 
 
 def connect(filename):
+     # 1. đọc file dbControl.ini
     db_config = configparser.ConfigParser()
     db_config.read(filename)
     host = db_config.get('mysql', 'host')
@@ -24,6 +25,7 @@ def connect(filename):
     password = db_config.get('mysql', 'password')
     database = db_config.get('mysql', 'database')
     try:
+     # 2. kết nối cơ sở dữ liệu 
         cnx = mysql.connector.connect(
             user=user, password=password, host=host, database=database)
         if cnx.is_connected():
@@ -34,6 +36,7 @@ def connect(filename):
 
 
 def getDataFromAPI():
+    response = requests.get(api_url, params=params)
     if response.status_code == 200:
         current_date = datetime.now().strftime("%d%m%Y")
         save_directory = r"D:\weather_data_Staging"
@@ -52,24 +55,19 @@ def countdown(t):
         t -= 1
     print("\r", '00:00', end="")
     print()
-
-   
 if __name__ == '__main__':
     count=0
-    response = requests.get(api_url, params=params)
-    
-    getDataFromAPI()
+    # getDataFromAPI()
     current_date = datetime.now().strftime("%d%m%Y")
     currentdate = datetime.now().strftime("%Y:%m:%d")
     save_directory = r"D:\weather_data_Staging"
     file_name = fr"{save_directory}\{current_date}_weather_forecast.json"
     fileconfigs = '\dbconfig\dbControl.ini'
- 
-    # 1. đọc file dbControl.ini
+    
     current_dir = os.path.dirname(__file__)+fileconfigs
     print(current_dir)
     while True:
-        # 2. kết nối cơ sở dữ liệu 
+        # 1,2
         conn = connect(current_dir)
         print(conn)
         #3. Kiểm tra kết nối cơ sở dữ liệu 
@@ -80,53 +78,52 @@ if __name__ == '__main__':
                 insertData = ('CONNECT_DB_SUCCESS', 'connect db control success', datetime.now())
                 cursor = conn.cursor()
                 cursor.execute(query, insertData)
-                             
+                                             
                 # 4 Lấy dữ liệu từ src_path tại control_data_file_configs mà nguồn bằng 1
                 cursor.execute('SELECT src_path FROM control_data_file_configs WHERE id = 1')
-                result = cursor.fetchall()
-                          
+                result = cursor.fetchone()
+                print(result[0])
                 # 5 Kiểm tra kết nối 
-                if response.status_code == 200:
-                    # 5.1 ghi dư liệu vào file
-                    getDataFromAPI()
-                    # 5.2 ghi log thành công
-                    insert_query = "INSERT INTO log (id_config, status,note,log_date) VALUES (%s, %s, %s,%s)"
-                    cursor.execute(
-                        insert_query, (1, 'EXTRACT_SUCCESS', 'crawl success', fr'{currentdate}'))
-                    with open(file_name, 'r') as file:
-                        dataforecast = json.load(file)
-                    # 5.3 ghi dữ liệu Extract thành công vào control_data_file [status= EXTRACT_SUCCESS]
-                    insert_query = "INSERT INTO control_data_file (id_config,name, row_count, status,data_range_from,data_range_to,note,create_at,update_at,create_by,update_by) VALUES (%s, %s, %s,%s, %s, %s,%s, %s, %s,%s, %s)"
-                    cursor.execute(insert_query, (1, fr'{current_date}_weather_forecast.json', 6, 'EXTRACT_SUCCESS', dataforecast['timelines']['daily'][
-                                   0]['time'], dataforecast['timelines']['daily'][5]['time'], 'crawl', fr'{currentdate}', fr'{currentdate}', 'Nhơn', 'Nhơn'))
-                
-                    conn.commit()
-                    print("Dữ liệu đã được thêm thành công!")
-                else :
-                    # 5.4 ghi log thất bại
-                    insert_query = "INSERT INTO log (id_config, status,note,log_date) VALUES (%s, %s, %s,%s)"
-                    cursor.execute(
-                        insert_query, (1, 'EXTRACT_FAIL', 'crawl unsuccess', fr'{currentdate}'))
-                  
-                    print("Dữ liệu đã được thêm thất bại!")
-                    # 5.5 ghi dữ liệu Extract thất bại vào control_data_file [status= EXTRACT_FAIL]
-                    with open(file_name, 'r') as file:
-                        dataforecast = json.load(file)
-                    insert_query = "INSERT INTO control_data_file (id_config,name, row_count, status,data_range_from,data_range_to,note,create_at,update_at,create_by,update_by) VALUES (%s, %s, %s,%s, %s, %s,%s, %s, %s,%s, %s)"
-                    cursor.execute(insert_query, (1, fr'{current_date}_weather_forecast.json', 6, 'EXTRACT_FAIL', dataforecast['timelines']['daily'][
-                                   0]['time'], dataforecast['timelines']['daily'][5]['time'], 'crawl', fr'{currentdate}', fr'{currentdate}', 'Nhơn', 'Nhơn'))
-                
-                    conn.commit()                  
-                    print('Get data again after:')
-                    countdown(600)
-                    if count <= 10 :break
-                    count +=1
-                    continue    
+                while(True):
+                    response = requests.get(result[0])   
+
+                    if response.status_code == 200:
+                        # 5.1 ghi dư liệu vào file
+                        getDataFromAPI()
+                        # 5.2 ghi log thành công
+                        insert_query = "INSERT INTO log (id_config, status,note,log_date) VALUES (%s, %s, %s,%s)"
+                        cursor.execute(
+                            insert_query, (1, 'EXTRACT_SUCCESS', 'crawl success', fr'{currentdate}'))
+                        with open(file_name, 'r') as file:
+                            dataforecast = json.load(file)
+                        # 5.3 ghi dữ liệu Extract thành công vào control_data_file [status= EXTRACT_SUCCESS]
+                        insert_query = "INSERT INTO control_data_file (id_config,name, row_count, status,data_range_from,data_range_to,note,create_at,update_at,create_by,update_by) VALUES (%s, %s, %s,%s, %s, %s,%s, %s, %s,%s, %s)"
+                        cursor.execute(insert_query, (1, fr'{current_date}_weather_forecast.json', 6, 'EXTRACT_SUCCESS', dataforecast['timelines']['daily'][
+                                    0]['time'], dataforecast['timelines']['daily'][5]['time'], 'crawl', fr'{currentdate}', fr'{currentdate}', 'Nhơn', 'Nhơn'))
+                    
+                        conn.commit()
+                        print("Dữ liệu đã được thêm thành công!")
+                        break
+                    else :
+                        # 5.4 ghi log thất bại
+                        insert_query = "INSERT INTO log (id_config, status,note,log_date) VALUES (%s, %s, %s,%s)"
+                        cursor.execute(
+                            insert_query, (1, 'CONNECT_SOURCE_FAIL', 'connect source unsuccess', fr'{currentdate}'))
+            
+                        print("Dữ liệu đã được thêm thất bại!")     
+                        print('Get data again after:')
+                        countdown(600)
+                        count +=1
+                        if count >= 10 :
+                            # 5.5 ghi dữ liệu Extract thất bại vào control_data_file [status= EXTRACT_FAIL]
+                            insert_query = "INSERT INTO control_data_file (id_config,name, row_count, status,data_range_from,data_range_to,note,create_at,update_at,create_by,update_by) VALUES (%s, %s, %s,%s, %s, %s,%s, %s, %s,%s, %s)"
+                            cursor.execute(insert_query, (1, 'null', 'null', 'EXTRACT_FAIL','null' ,'null', 'crawl', fr'{currentdate}', fr'{currentdate}', 'Nhơn', 'Nhơn'))
+                            conn.commit()
+                            break
+                        else :  continue
+                break
             except mysql.connector.Error as err:
-                insert_query = "INSERT INTO log (id_config, status,note,log_date) VALUES (%s, %s, %s,%s)"
-                cursor.execute(insert_query, (1, 'EXTRACT_FAIL',
-                               'crawl unsuccess', fr'{currentdate}'))
-                conn.commit()
+        
                 print(f"Lỗi thêm dữ liệu: {err}")
                 print('Get data again after:')
                 countdown(600)
@@ -136,11 +133,11 @@ if __name__ == '__main__':
                 # Đóng cursor và kết nối
                 cursor.close()
                 conn.close()
-            break
+         
         else:
-            # 3.2.  kết nối lại sau 10p
-            if count <= 10 :break
             count +=1
+            # 3.1 kiểm tra lần lặp có lớn hơn 10 không?
+            if count >= 10 :break
             print('reconnect last:')
             countdown(600)
             print('start reconnect')
