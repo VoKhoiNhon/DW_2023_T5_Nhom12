@@ -32,6 +32,8 @@ def connect(filename):
             print('Connected to MySQL database')
         return cnx
     except mysql.connector.Error as err:
+        with open(file_err, 'a') as file:
+                 file.write(f'Error: {str(err)}\n')
         print(err)
 
 
@@ -62,6 +64,8 @@ if __name__ == '__main__':
     currentdate = datetime.now().strftime("%Y:%m:%d")
     save_directory = r"D:\weather_data_Staging"
     file_name = fr"{save_directory}\{current_date}_weather_forecast.json"
+    save_directoryEr = r"D:\error_EXTRACT"
+    file_err = fr"{save_directoryEr}\{current_date}_weather_forecast.txt"
     fileconfigs = '\dbconfig\dbControl.ini'
     
     current_dir = os.path.dirname(__file__)+fileconfigs
@@ -69,7 +73,7 @@ if __name__ == '__main__':
     while True:
         # 1,2
         conn = connect(current_dir)
-        print(conn)
+        # print(conn)
         #3. Kiểm tra kết nối cơ sở dữ liệu 
         if conn is not None:
             try:
@@ -86,7 +90,6 @@ if __name__ == '__main__':
                 # 5 Kiểm tra kết nối 
                 while(True):
                     response = requests.get(result[0])   
-
                     if response.status_code == 200:
                         # 5.1 ghi dư liệu vào file
                         getDataFromAPI()
@@ -123,10 +126,16 @@ if __name__ == '__main__':
                         else :  continue
                 break
             except mysql.connector.Error as err:
-        
+                        
                 print(f"Lỗi thêm dữ liệu: {err}")
-                print('Get data again after:')
+                with open(file_err, 'a') as file:
+                 file.write(f'Error: {str(err)}\n')
+                count +=1
+                # 3.1 kiểm tra lần lặp có lớn hơn 10 không?
+                if count >= 10 :break
                 countdown(600)
+            
+
                 continue  
                
             finally:
@@ -137,7 +146,12 @@ if __name__ == '__main__':
         else:
             count +=1
             # 3.1 kiểm tra lần lặp có lớn hơn 10 không?
-            if count >= 10 :break
+            if count >= 10 :
+                err= "connect unsuccess"
+                print(f"Lỗi connect db : {err}")
+                with open(file_err, 'a') as file:
+                 file.write(f'Error: {str(err)}\n')
+                break
             print('reconnect last:')
             countdown(600)
             print('start reconnect')
