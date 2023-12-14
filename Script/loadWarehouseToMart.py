@@ -23,6 +23,10 @@ def connect(filename):
         return cnx
     except mysql.connector.Error as err:
         print(err)
+        with open(file_err, 'a') as file:
+                file.write(f'Error: {str(err)}\n')
+      
+             
 
 def countdown(t):
     while t:
@@ -41,6 +45,8 @@ if __name__ == '__main__':
     fileconfigs='\dbconfig\dbControl.ini'
     configWarehouse='\dbconfig\dbWarehouse.ini'
     configMart='\dbconfig\dbMart.ini'
+    save_directoryEr = r"D:\error_EXTRACT"
+    file_err = fr"{save_directoryEr}\{current_date}_weather_forecast.txt"
     while True :
         # 1 , 2 
         current_dir_CT = os.path.dirname(__file__)+fileconfigs
@@ -125,7 +131,13 @@ if __name__ == '__main__':
 
             except mysql.connector.Error as err:
                 print(f"Lỗi thêm dữ liệu: {err}")
-                print('Get data again after:')
+                # ghi dữ liệu lỗi
+                with open(file_err, 'a') as file:
+                 file.write(f'Error: {str(err)}\n')
+                count +=1
+                # 3.1 kiểm tra lần lặp có lớn hơn 10 không?
+                if count >= 10 :break
+                countdown(600)
                 continue  
             finally:
                 # 17 đóng kết nối db control
@@ -135,7 +147,12 @@ if __name__ == '__main__':
         else: 
 # 3.1 kiểm tra lần lặp có lớn hơn 10 không?
             count +=1
-            if count >= 10 :break
+            if count >= 10 :
+                err= "connect unsuccess"
+                print(f"Lỗi connect db : {err}")
+                with open(file_err, 'a') as file:
+                 file.write(f'Error: {str(err)}\n')
+                break
             print('reconnect last:')
             countdown(600)
             print('start reconnect')
