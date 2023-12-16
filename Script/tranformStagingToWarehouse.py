@@ -25,30 +25,12 @@ def connect(filename):
         print('connect fail')
 
 
-def countdown(t, mess=''):
-    print(mess)
-    while t:
-        minis, secs = divmod(t, 60)
-        timer = '{:02d}:{:02d}'.format(minis, secs)
-        print("\r", timer, end="")
-        time.sleep(1)
-        t -= 1
-    print("\r", '00:00', end="")
-    print()
-
-
-def convertTime(time):
-    return datetime.strptime(time, "%Y-%m-%dT%H:%M:%SZ")
-
-
-def writeFileToDB(data):
-    listWeatherDay = data['timelines']['daily']
-    for i in range(len(listWeatherDay)):
-        foresCast = convertTime(listWeatherDay[i]['time'])
-        weatherVal = listWeatherDay[i]['values']
-
+def writeDataToDB(data):
+    for i in range(len(data)):
+        weatherVal = data[i]
         insertData = (
-            foresCast, weatherVal.get('cloudBaseAvg'), weatherVal.get('cloudBaseMax'), weatherVal.get('cloudBaseMin'),
+            weatherVal.get('forecastDay'), weatherVal.get('cloudBaseAvg'), weatherVal.get('cloudBaseMax'),
+            weatherVal.get('cloudBaseMin'),
             weatherVal.get('cloudCeilingAvg'), weatherVal.get('cloudCeilingMax'), weatherVal.get('cloudCeilingMin'),
             weatherVal.get('cloudCoverAvg'), weatherVal.get('cloudCoverMax'), weatherVal.get('cloudCoverMin'),
             weatherVal.get('dewPointAvg'), weatherVal.get('dewPointMax'), weatherVal.get('dewPointMin'),
@@ -63,7 +45,7 @@ def writeFileToDB(data):
             weatherVal.get('iceAccumulationLweSum'),
             weatherVal.get('iceAccumulationMax'), weatherVal.get('iceAccumulationMin'),
             weatherVal.get('iceAccumulationSum'),
-            convertTime(weatherVal.get('moonriseTime')), convertTime(weatherVal.get('moonsetTime')),
+            weatherVal.get('moonriseTime'), weatherVal.get('moonsetTime'),
             weatherVal.get('precipitationProbabilityAvg'),
             weatherVal.get('precipitationProbabilityMax'),
             weatherVal.get('precipitationProbabilityMin'), weatherVal.get('pressureSurfaceLevelAvg'),
@@ -90,7 +72,7 @@ def writeFileToDB(data):
             weatherVal.get('snowAccumulationSum'), weatherVal.get('snowIntensityAvg'),
             weatherVal.get('snowIntensityMax'),
             weatherVal.get('snowIntensityMin'),
-            convertTime(weatherVal.get('sunriseTime')), convertTime(weatherVal.get('sunsetTime')),
+            weatherVal.get('sunriseTime'), weatherVal.get('sunsetTime'),
             weatherVal.get('temperatureApparentAvg'),
             weatherVal.get('temperatureApparentMax'), weatherVal.get('temperatureApparentMin'),
             weatherVal.get('temperatureAvg'),
@@ -105,7 +87,7 @@ def writeFileToDB(data):
             weatherVal.get('windGustMax'), weatherVal.get('windGustMin'), weatherVal.get('windSpeedAvg'),
             weatherVal.get('windSpeedMax'),
             weatherVal.get('windSpeedMin'), datetime.now())
-        query = "INSERT INTO load_weather_data " \
+        query = "INSERT INTO fact_weather " \
                 "(forecastDay,cloudBaseAvg, cloudBaseMax, cloudBaseMin,cloudCeilingAvg,cloudCeilingMax,cloudCeilingMin," \
                 "cloudCoverAvg,cloudCoverMax,cloudCoverMin,dewPointAvg,dewPointMax,dewPointMin,evapotranspirationAvg," \
                 "evapotranspirationMax,evapotranspirationMin,evapotranspirationSum,freezingRainIntensityAvg," \
@@ -127,8 +109,20 @@ def writeFileToDB(data):
                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s," \
                 "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s" \
                 ",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
-        cursorStaging.execute(query, insertData)
-    dbStaging.commit()
+        cursorWarehouse.execute(query, insertData)
+    dbWarehouse.commit()
+
+
+def countdown(t, mess=''):
+    print(mess)
+    while t:
+        minis, secs = divmod(t, 60)
+        timer = '{:02d}:{:02d}'.format(minis, secs)
+        print("\r", timer, end="")
+        time.sleep(1)
+        t -= 1
+    print("\r", '00:00', end="")
+    print()
 
 
 def writeLog(idConf=1, status='', note=''):
@@ -148,10 +142,10 @@ def getControlDataFileByDate(status, date):
     return resultSet[0].fetchone()
 
 
-def getConfig(ConfigId):
-    cursorControl.callproc('getConfig', args=(ConfigId,))
-    resultSet = list(cursorControl.stored_results())
-    return resultSet[0].fetchone()
+def getDataByDate(date):
+    cursorStaging.callproc('getDataByDate', args=(date,))
+    resultSet = list(cursorStaging.stored_results())
+    return resultSet[0].fetchall()
 
 
 if __name__ == '__main__':
@@ -169,13 +163,16 @@ if __name__ == '__main__':
     while isContinue:
         fileControl = '\dbconfig\dbControl.ini'
         fileStaging = '\dbconfig\dbStaging.ini'
+        fileWarehouse = '\dbconfig\dbWarehouse.ini'
+
         # 2. đọc file dbControl.ini, dbStaging, dbWarehouse để lấy cấu hình db
         # 3. kết nối db control, staging, warehouse
         dbControl = connect(current_dir + fileControl)
         dbStaging = connect(current_dir + fileStaging)
+        dbWarehouse = connect(current_dir + fileWarehouse)
 
         # 4. kết nối thành công?
-        if (dbControl is None) | (dbStaging is None):
+        if (dbControl is None) | (dbStaging is None) | (dbWarehouse is None):
             # 4.1 ghi file dữ liệu lỗi vào D:\error_EXTRACT
             writeFileLog('CONNECT_DB_FAIL', 'connect db control, staging, warehouse fail')
 
@@ -191,155 +188,69 @@ if __name__ == '__main__':
 
         cursorControl = dbControl.cursor(dictionary=True)
         cursorStaging = dbStaging.cursor(dictionary=True)
-
+        cursorWarehouse = dbWarehouse.cursor(dictionary=True)
         # 5. Ghi log CONNECT_DB_SUCCESS
-        writeLog(idConfig, 'CONNECT_DB_SUCCESS', 'connect db control and staging success')
+        writeLog(idConfig, 'CONNECT_DB_SUCCESS', 'connect db control, staging, warehouse success')
 
-        loopNumGetConfig = loopNum
+        loopNumGetDataToday = loopNum
         while isContinue:
-            # 6. lấy config trong table control_data_file_config dựa trên field idConfig[config.ini]
-            config = getConfig(idConfig)
+            # 6. Lấy dữ liệu từ table control_data_file[control] có status = LOAD_FILE_SUCCESS,create_at = [today]
+            dataFileToday = getControlDataFileByDate('LOAD_FILE_SUCCESS', datetime.now().date())
 
-            # 7.có dữ liệu trả về?
-            if config is None:
-                # 7.1 ghi log GET_CONFIG_FAIL
-                writeFileLog('GET_CONFIG_FAIL', 'get config fail')
+            # 7. Kiểm tra có dữ liệu trả về hay không?
+            if dataFileToday is None:
+                # 7.1 ghi log GET_DATA_FAIL
+                writeLog(idConfig, 'GET_DATA_FAIL', 'get data today with status LOAD_SUCCESS not exist')
 
                 # 7.2 kiểm tra số lần lặp còn lại có <= 0 hay không
-                if loopNumGetConfig <= 0:
+                if loopNumGetDataToday <= 0:
                     isContinue = False
 
                 # 7.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
-                loopNumGetConfig -= 1
-                countdown(countDownTime, mess='reconnect last:')
-                print('start reconnect')
+                loopNumGetDataToday -= 1
+                countdown(countDownTime, mess='Get data again after:')
                 continue
 
-            # 8. ghi log GET_CONFIG_SUCCESS
-            writeFileLog('GET_CONFIG_SUCCESS', 'get config success')
+            # 8. lấy dữ liệu ngày hôm nay từ table weather_data [staging]
+            dataToday = getDataByDate(datetime.now().date())
 
-            loopNumGetControlFile = loopNum
+            # 9. Ghi log GET_DATA_SUCCESS
+            writeLog(idConfig, 'GET_DATA_SUCCESS', 'get data from staging success')
+
+            # 10. ghi các dữ liệu đã lấy được vào table fact_weather[warehouse]
+            writeDataToDB(dataToday)
+
+            # 11. Ghi log INSERT_SUCCESS
+            writeLog(idConfig, 'INSERT_SUCCESS', 'insert data to warehouse success')
+
+            # 12. chuyển đổi dữ liệu từ table fact_weather, dim_weather_code, dim_uv_status qua table
+            # aggregate_weatherdata
+            loopTransformAggregate = loopNum
             while isContinue:
-                # 9. Lấy dữ liệu từ table control_data_file[control] có status = EXTRACT_SUCCESS,create_at = [today]
-                dataFileToday = getControlDataFileByDate('EXTRACT_SUCCESS', datetime.now().date())
+                # 13. Chuyển đổi thành công?
+                try:
+                    cursorWarehouse.callproc('tranformFactToAggregate', args=(datetime.now().date(),))
+                    dbWarehouse.commit()
+                except:
+                    # 13.1 ghi log TRANSFORM_FAIL
+                    writeLog(idConfig, 'TRANSFORM_FAIL', 'transform data to aggregate_weatherdata fail')
 
-                # 10.có dữ liệu trả về?
-                if dataFileToday is None:
-                    # 10.1 ghi log GET_CONFIG_FILE_FAIL
-                    writeFileLog('GET_CONFIG_FILE_FAIL', 'get config file fail')
-
-                    # 10.2 kiểm tra số lần lặp còn lại có <= 0 hay không
-                    if loopNumGetControlFile <= 0:
+                    # 13.2 kiểm tra số lần lặp còn lại có <= 0 hay không
+                    if loopTransformAggregate <= 0:
                         isContinue = False
 
-                    # 10.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
-                    loopNumGetControlFile -= 1
-                    countdown(countDownTime, mess='reconnect last:')
-                    print('start reconnect')
+                    # 13.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
+                    loopTransformAggregate -= 1
+                    countdown(countDownTime, mess='Get data again after:')
                     continue
 
-                # 11. đọc file json đã được tải về thông qua trường location[config] + name[control_data_file]
-                locationFile = config['location'] + '\\' + dataFileToday['name']
-                loopNumReadFile = loopNum
-                while isContinue:
-                    # 12. Đọc thành công?
-                    try:
-                        with open(locationFile, 'r') as file:
-                            jsonData = json.load(file)
-                    except:
-                        # 12.1 ghi log READ_FILE_FAIL
-                        writeFileLog('READ_FILE_FAIL', 'read file fail')
-
-                        # 12.2 kiểm tra số lần lặp còn lại có <= 0 hay không
-                        if loopNumReadFile <= 0:
-                            isContinue = False
-
-                        # 12.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
-                        loopNumReadFile -= 1
-                        countdown(countDownTime, mess='reconnect last:')
-                        print('start reconnect')
-                        continue
-
-                    # 13. ghi log READ_FILE_SUCCESS
-                    writeFileLog('READ_FILE_SUCCESS', 'read file success')
-
-                    # 14. backup file qua folder theo destination[control_data_file_config]
-                    try:
-                        shutil.copy(locationFile, config['destination'])
-                        writeLog(idConfig, 'BACKUP_SUCCESS',
-                                 'backup file ' + dataFileToday['name'] + ' to ' + config['destination'] + ' success')
-                    except:
-                        # 15.1 ghi log BACKUP_FILE_FAIL
-                        writeFileLog('BACKUP_FILE_FAIL', 'backup file fail')
-
-                        # 12.2 kiểm tra số lần lặp còn lại có <= 0 hay không
-                        if loopNumReadFile <= 0:
-                            isContinue = False
-
-                        # 12.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
-                        loopNumReadFile -= 1
-                        countdown(countDownTime, mess='reconnect last:')
-                        print('start reconnect')
-                        continue
-
-                    # 16. ghi log BACKUP_FILE_SUCCESS
-                    writeFileLog('BACKUP_FILE_SUCCESS', 'backup file success')
-
-                    loopNumWriteToDB = loopNum
-                    # 17. ghi dữ liệu lấy từ file vào  table load_weather_data[staging]
-                    while isContinue:
-                        # 18. ghi thành công?
-                        try:
-                            writeFileToDB(jsonData)
-                        except mysql.connector.Error as err:
-                            # 18.1 ghi log WRITE_TO_DB_FAIL
-                            writeFileLog('WRITE_TO_DB_FAIL', 'write file to db fail')
-
-                            # 18.2 kiểm tra số lần lặp còn lại có <= 0 hay không
-                            if loopNumWriteToDB <= 0:
-                                isContinue = False
-
-                            # 18.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
-                            loopNumWriteToDB -= 1
-                            countdown(countDownTime, mess='reconnect last:')
-                            print('start reconnect')
-                            continue
-
-                        # 19. ghi log WRITE_TO_DB_SUCCESS
-                        writeLog(idConfig, 'WRITE_TO_DB_SUCCESS', 'load file to staging success')
-
-                        # 20. Chuyển đổi dữ liệu từ table load_weather_data qua table weather_data
-                        # 21. ghi thành công?
-                        try:
-                            cursorStaging.callproc('transformData', args=(datetime.now().date(),))
-                            dbStaging.commit()
-                        except:
-                            # 21.1 ghi log TRANSFORM_DATA_FAIL
-                            writeFileLog('TRANSFORM_DATA_FAIL',
-                                         'transform table load_weather_data to table weather_data fail')
-
-                            # 18.2 kiểm tra số lần lặp còn lại có <= 0 hay không
-                            if loopNumWriteToDB <= 0:
-                                isContinue = False
-
-                            # 18.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
-                            loopNumWriteToDB -= 1
-                            countdown(countDownTime, mess='reconnect last:')
-                            print('start reconnect')
-                            continue
-
-                        # 22. ghi log TRANSFORM_DATA_SUCCESS
-                        writeLog(idConfig, 'TRANSFORM_DATA_SUCCESS',
-                                 'transform table load_weather_data to table weather_data success')
-
-                        # 23. ghi log LOAD_FILE_SUCCESS
-                        writeLog(idConfig, 'LOAD_FILE_SUCCESS', 'load file success')
-
-                        # 24. thay đổi trạng thái file hiện tại trong table control_data_file thành LOAD_FILE_SUCCESS
-                        cursorControl.callproc("updateStatusDataFile",
-                                               args=(dataFileToday['id'], 'LOAD_FILE_SUCCESS'))
-                        dbControl.commit()
-                        isContinue = False
-        # 25. Đóng tất cả kết nối đến các db
+                writeLog(idConfig, 'TRANSFORM_SUCCESS', 'transform data to aggregate_weatherdata success')
+                # 15. Thay đổi trạng thái của dữ liệu đã lấy trong table control_data_file status= 'TRANSFORM_SUCCESS'
+                cursorControl.callproc("updateStatusDataFile",
+                                       args=(dataFileToday['id'], 'TRANSFORM_SUCCESS'))
+                dbControl.commit()
+                isContinue = False
+        # 16. Đóng tất cả kết nối đến các db
         dbStaging.close()
         dbControl.close()
+        dbWarehouse.close()
