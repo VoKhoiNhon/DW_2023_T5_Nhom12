@@ -1,5 +1,4 @@
 import configparser
-import requests
 import json
 from datetime import datetime
 import mysql.connector
@@ -10,12 +9,14 @@ import shutil
 
 def connect(filename):
     db_config = configparser.ConfigParser()
+    # 2. đọc file dbControl.ini, dbStaging, dbWarehouse để lấy cấu hình db
     db_config.read(filename)
     host = db_config.get('mysql', 'host')
     user = db_config.get('mysql', 'user')
     password = db_config.get('mysql', 'password')
     database = db_config.get('mysql', 'database')
     try:
+        # 3. kết nối db control, staging, warehouse
         cnx = mysql.connector.connect(user=user, password=password, host=host, database=database)
         if cnx.is_connected():
             print('Connected to MySQL database: ' + cnx.database)
@@ -24,7 +25,8 @@ def connect(filename):
         print('connect fail')
 
 
-def countdown(t):
+def countdown(t, mess=''):
+    print(mess)
     while t:
         minis, secs = divmod(t, 60)
         timer = '{:02d}:{:02d}'.format(minis, secs)
@@ -125,104 +127,219 @@ def writeFileToDB(data):
                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s," \
                 "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s" \
                 ",%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
-    cursorStaging.execute(query, insertData)
+        cursorStaging.execute(query, insertData)
     dbStaging.commit()
 
 
-def writeLog(status='', note=''):
-    query = "INSERT INTO log (status, note, log_date) VALUES ( %s, %s,%s)"
-    insertData = (status, note, datetime.now())
-    cursorControl.execute(query, insertData)
+def writeLog(idConf=1, status='', note=''):
+    cursorControl.callproc('writeLog', args=(idConf, status, note))
     dbControl.commit()
     print(note)
 
 
-if __name__ == '__main__':
-    fileControl = '\dbconfig\dbControl.ini'
-    fileStaging = '\dbconfig\dbStaging.ini'
-    current_dir = os.path.dirname(__file__)
+def writeFileLog(status='', note=''):
+    # TODO:
+    print(note)
 
-    while True:
-        # 1. Kết nối DB control và DB staging
+
+def getControlDataFileByDate(status, date):
+    cursorControl.callproc('getControlDataFileByDate', args=(status, date))
+    resultSet = list(cursorControl.stored_results())
+    return resultSet[0].fetchone()
+
+
+def getConfig(ConfigId):
+    cursorControl.callproc('getConfig', args=(ConfigId,))
+    resultSet = list(cursorControl.stored_results())
+    return resultSet[0].fetchone()
+
+
+if __name__ == '__main__':
+    current_dir = os.path.dirname(__file__)
+    globalConfig = configparser.ConfigParser()
+    isContinue = True
+
+    # 1. đọc file config.ini để lấy cấu hình ban đầu
+    globalConfig.read(current_dir + "\config.ini")
+    idConfig = int(globalConfig.get('config', 'idConfig'))
+    countDownTime = int(globalConfig.get('config', 'countDownTime'))
+    loopNum = int(globalConfig.get('config', 'loopNum'))
+
+    loopNumConnectDB = loopNum
+    while isContinue:
+        fileControl = '\dbconfig\dbControl.ini'
+        fileStaging = '\dbconfig\dbStaging.ini'
+        # 2. đọc file dbControl.ini, dbStaging, dbWarehouse để lấy cấu hình db
+        # 3. kết nối db control, staging, warehouse
         dbControl = connect(current_dir + fileControl)
         dbStaging = connect(current_dir + fileStaging)
-        # 2. Kết nối thành công?
-        if (dbControl is not None) & (dbStaging is not None):
-            cursorControl = dbControl.cursor(dictionary=True)
-            cursorStaging = dbStaging.cursor(dictionary=True)
 
-            # 3.1. Ghi log kết nối thành công
-            writeLog('CONNECT_DB_SUCCESS', 'connect db control and staging success')
+        # 4. kết nối thành công?
+        if (dbControl is None) | (dbStaging is None):
+            # 4.1 ghi file dữ liệu lỗi vào D:\error_EXTRACT
+            writeFileLog('CONNECT_DB_FAIL', 'connect db control, staging, warehouse fail')
 
-            # 4. Lấy trường dữ liệu is_delete = 0 trong table control_data_file_config
-            cursorControl.execute('SELECT * FROM control_data_file_configs WHERE is_delete = 0')
-            result = cursorControl.fetchall()
-            config = result[0]
+            # 4.2 kiểm tra số lần lặp còn lại có <= 0 hay không
+            if loopNumConnectDB <= 0:
+                isContinue = False
 
-            while True:
-                # 5. Lấy trường dữ liệu ngày hôm nay từ table control_data_file
-                currentDate = datetime.now()
-                cursorControl.execute(
-                    'SELECT * FROM control_data_file WHERE DATE(create_at) = %s', (currentDate.date(),))
-                result = cursorControl.fetchall()
-                dataFileToday = result[0]
+            # 4.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
+            loopNumConnectDB -= 1
+            countdown(countDownTime, mess='reconnect last:')
+            print('start reconnect')
+            continue
 
-                # 6. status = EXTRACT_SUCCESS?
-                if dataFileToday['status'] == 'EXTRACT_SUCCESS':
-                    # 7.1. Đọc file theo đường dẫn từ trường location của table config và name của table control_data_file
-                    locationFile = config['location'] + '\\' + dataFileToday['name']
+        cursorControl = dbControl.cursor(dictionary=True)
+        cursorStaging = dbStaging.cursor(dictionary=True)
 
-                    # 8. File tồn tại?
+        # 5. Ghi log CONNECT_DB_SUCCESS
+        writeLog(idConfig, 'CONNECT_DB_SUCCESS', 'connect db control and staging success')
+
+        loopNumGetConfig = loopNum
+        while isContinue:
+            # 6. lấy config trong table control_data_file_config dựa trên field idConfig[config.ini]
+            config = getConfig(idConfig)
+
+            # 7.có dữ liệu trả về?
+            if config is None:
+                # 7.1 ghi log GET_CONFIG_FAIL
+                writeFileLog('GET_CONFIG_FAIL', 'get config fail')
+
+                # 7.2 kiểm tra số lần lặp còn lại có <= 0 hay không
+                if loopNumGetConfig <= 0:
+                    isContinue = False
+
+                # 7.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
+                loopNumGetConfig -= 1
+                countdown(countDownTime, mess='reconnect last:')
+                print('start reconnect')
+                continue
+
+            # 8. ghi log GET_CONFIG_SUCCESS
+            writeFileLog('GET_CONFIG_SUCCESS', 'get config success')
+
+            loopNumGetControlFile = loopNum
+            while isContinue:
+                # 9. Lấy dữ liệu từ table control_data_file[control] có status = EXTRACT_SUCCESS,create_at = [today]
+                dataFileToday = getControlDataFileByDate('EXTRACT_SUCCESS', datetime.now().date())
+
+                # 10.có dữ liệu trả về?
+                if dataFileToday is None:
+                    # 10.1 ghi log GET_CONFIG_FILE_FAIL
+                    writeFileLog('GET_CONFIG_FILE_FAIL', 'get config file fail')
+
+                    # 10.2 kiểm tra số lần lặp còn lại có <= 0 hay không
+                    if loopNumGetControlFile <= 0:
+                        isContinue = False
+
+                    # 10.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
+                    loopNumGetControlFile -= 1
+                    countdown(countDownTime, mess='reconnect last:')
+                    print('start reconnect')
+                    continue
+
+                # 11. đọc file json đã được tải về thông qua trường location[config] + name[control_data_file]
+                locationFile = config['location'] + '\\' + dataFileToday['name']
+                loopNumReadFile = loopNum
+                while isContinue:
+                    # 12. Đọc thành công?
                     try:
                         with open(locationFile, 'r') as file:
                             jsonData = json.load(file)
                     except:
-                        # 7.2 Đợi 10 phút
-                        print('Get data again after:')
-                        countdown(600)
+                        # 12.1 ghi log READ_FILE_FAIL
+                        writeFileLog('READ_FILE_FAIL', 'read file fail')
+
+                        # 12.2 kiểm tra số lần lặp còn lại có <= 0 hay không
+                        if loopNumReadFile <= 0:
+                            isContinue = False
+
+                        # 12.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
+                        loopNumReadFile -= 1
+                        countdown(countDownTime, mess='reconnect last:')
+                        print('start reconnect')
                         continue
 
-                    # 9. Backup file vào folder theo trường destination trong table config
-                    # 10. Backup thành công?
+                    # 13. ghi log READ_FILE_SUCCESS
+                    writeFileLog('READ_FILE_SUCCESS', 'read file success')
+
+                    # 14. backup file qua folder theo destination[control_data_file_config]
                     try:
                         shutil.copy(locationFile, config['destination'])
-                        # 11. Ghi log backup thành công
-                        writeLog('BACKUP_SUCCESS',
+                        writeLog(idConfig, 'BACKUP_SUCCESS',
                                  'backup file ' + dataFileToday['name'] + ' to ' + config['destination'] + ' success')
                     except:
-                        # 7.2 Đợi 10 phút
-                        print('Get data again after:')
-                        countdown(600)
+                        # 15.1 ghi log BACKUP_FILE_FAIL
+                        writeFileLog('BACKUP_FILE_FAIL', 'backup file fail')
+
+                        # 12.2 kiểm tra số lần lặp còn lại có <= 0 hay không
+                        if loopNumReadFile <= 0:
+                            isContinue = False
+
+                        # 12.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
+                        loopNumReadFile -= 1
+                        countdown(countDownTime, mess='reconnect last:')
+                        print('start reconnect')
                         continue
 
-                    # 12. Ghi dữ liệu từ file đã đọc vào bảng load_weather_data
-                    # 13. Ghi thành công?
-                    try:
-                        writeFileToDB(jsonData)
-                        # 14. Ghi log load file thành công và control_data_file status = "LOAD_FILE_SUCCESS"
-                        writeLog('LOAD_FILE_SUCCESS', 'load file to staging success')
-                        cursorControl.execute("UPDATE control_data_file SET status = %s WHERE id = %s",
-                                              ('LOAD_FILE_SUCCESS', dataFileToday['id']))
+                    # 16. ghi log BACKUP_FILE_SUCCESS
+                    writeFileLog('BACKUP_FILE_SUCCESS', 'backup file success')
+
+                    loopNumWriteToDB = loopNum
+                    # 17. ghi dữ liệu lấy từ file vào  table load_weather_data[staging]
+                    while isContinue:
+                        # 18. ghi thành công?
+                        try:
+                            writeFileToDB(jsonData)
+                        except mysql.connector.Error as err:
+                            # 18.1 ghi log WRITE_TO_DB_FAIL
+                            writeFileLog('WRITE_TO_DB_FAIL', 'write file to db fail')
+
+                            # 18.2 kiểm tra số lần lặp còn lại có <= 0 hay không
+                            if loopNumWriteToDB <= 0:
+                                isContinue = False
+
+                            # 18.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
+                            loopNumWriteToDB -= 1
+                            countdown(countDownTime, mess='reconnect last:')
+                            print('start reconnect')
+                            continue
+
+                        # 19. ghi log WRITE_TO_DB_SUCCESS
+                        writeLog(idConfig, 'WRITE_TO_DB_SUCCESS', 'load file to staging success')
+
+                        # 20. Chuyển đổi dữ liệu từ table load_weather_data qua table weather_data
+                        # 21. ghi thành công?
+                        try:
+                            cursorStaging.callproc('transformData', args=(datetime.now().date(),))
+                            dbStaging.commit()
+                        except:
+                            # 21.1 ghi log TRANSFORM_DATA_FAIL
+                            writeFileLog('TRANSFORM_DATA_FAIL',
+                                         'transform table load_weather_data to table weather_data fail')
+
+                            # 18.2 kiểm tra số lần lặp còn lại có <= 0 hay không
+                            if loopNumWriteToDB <= 0:
+                                isContinue = False
+
+                            # 18.3 giảm số lần lặp còn lại đi 1 và đợi 10 phút
+                            loopNumWriteToDB -= 1
+                            countdown(countDownTime, mess='reconnect last:')
+                            print('start reconnect')
+                            continue
+
+                        # 22. ghi log TRANSFORM_DATA_SUCCESS
+                        writeLog(idConfig, 'TRANSFORM_DATA_SUCCESS',
+                                 'transform table load_weather_data to table weather_data success')
+
+                        # 23. ghi log LOAD_FILE_SUCCESS
+                        writeLog(idConfig, 'LOAD_FILE_SUCCESS', 'load file success')
+
+                        # 24. thay đổi trạng thái file hiện tại trong table control_data_file thành LOAD_FILE_SUCCESS
+                        cursorControl.callproc("updateStatusDataFile",
+                                               args=(dataFileToday['id'], 'LOAD_FILE_SUCCESS'))
                         dbControl.commit()
-
-                    except mysql.connector.Error as err:
-                        # 14.2 Ghi log load file không thành công
-                        writeLog('LOAD_FILE_FAIL', 'load file to staging not success')
-                        print(f"load file error: {err}")
-                        # 7.2 Đợi 10 phút
-                        print('Get data again after:')
-                        countdown(600)
-                        continue
-
-                    break
-                else:
-                    # 7.2 Đợi 10 phút
-                    print('Get data again after:')
-                    countdown(600)
-            break
-        # 3.2. Đợi 10 phút
-        else:
-            # TODO  writeLog('not done')
-            print('reconnect last:')
-            countdown(600)
-            print('start reconnect')
+                        isContinue = False
+        # 25. Đóng tất cả kết nối đến các db
+        dbStaging.close()
+        dbControl.close()
