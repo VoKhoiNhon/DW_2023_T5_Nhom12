@@ -77,65 +77,61 @@ if __name__ == '__main__':
         #3. Kiểm tra kết nối cơ sở dữ liệu 
         if conn is not None:
             try:
-                # 3.1. Ghi log kết nối thành công
+                # 4. Ghi log kết nối thành công và ghi vào 1 dòng với status= START_EXTRACT ở bảng control_data_file
                 query = "INSERT INTO log (status, note, log_date) VALUES ( %s, %s,%s)"
                 insertData = ('CONNECT_DB_SUCCESS', 'connect db control success', datetime.now())
                 cursor = conn.cursor()
                 cursor.execute(query, insertData)
-                                             
-                # 4 Lấy dữ liệu từ src_path tại control_data_file_configs mà nguồn bằng 1
+
+                insert_query = "INSERT INTO control_data_file (id_config,name, row_count, status,data_range_from,data_range_to,note,create_at,update_at,create_by,update_by) VALUES (%s, %s, %s,%s, %s, %s,%s, %s, %s,%s, %s)"
+                cursor.execute(insert_query, (1,'null' , 'null', 'START_EXTRACT', 'null', 'null', 'crawl', fr'{currentdate}', fr'{currentdate}', 'Nhơn', 'Nhơn'))
+                conn.commit()           
+                # 5 Lấy dữ liệu từ src_path tại control_data_file_configs mà nguồn bằng 1
                 cursor.execute('SELECT src_path FROM control_data_file_configs WHERE id = 1')
                 result = cursor.fetchone()
                 print(result[0])
-                # 5 Kiểm tra kết nối 
                 while(True):
+                # 6 gửi request tới source
                     response = requests.get(result[0])   
+                # 7 Kiểm tra kết nối 
                     if response.status_code == 200:
-                        # 5.1 ghi dư liệu vào file
+                        # 8 ghi dư liệu vào file
                         getDataFromAPI()
-                        # 5.2 ghi log thành công
+                        # 9 ghi log thành công
                         insert_query = "INSERT INTO log (id_config, status,note,log_date) VALUES (%s, %s, %s,%s)"
                         cursor.execute(
                             insert_query, (1, 'EXTRACT_SUCCESS', 'crawl success', fr'{currentdate}'))
                         with open(file_name, 'r') as file:
                             dataforecast = json.load(file)
-                        # 5.3 ghi dữ liệu Extract thành công vào control_data_file [status= EXTRACT_SUCCESS]
-                        insert_query = "INSERT INTO control_data_file (id_config,name, row_count, status,data_range_from,data_range_to,note,create_at,update_at,create_by,update_by) VALUES (%s, %s, %s,%s, %s, %s,%s, %s, %s,%s, %s)"
-                        cursor.execute(insert_query, (1, fr'{current_date}_weather_forecast.json', 6, 'EXTRACT_SUCCESS', dataforecast['timelines']['daily'][
-                                    0]['time'], dataforecast['timelines']['daily'][5]['time'], 'crawl', fr'{currentdate}', fr'{currentdate}', 'Nhơn', 'Nhơn'))
+                        # 10 update dữ liệu Extract thành công vào control_data_file [status= EXTRACT_SUCCESS]
+                        update_query = "UPDATE control_data_file SET name = %s, row_count = %s, status = %s, data_range_from = %s, data_range_to = %s, note = %s, update_at = %s, update_by = %s WHERE id_config = 1 and status= 'START_EXTRACT' and create_at=CURRENT_DATE"
+                        cursor.execute(update_query, ( fr'{current_date}_weather_forecast.json', 6, 'EXTRACT_SUCCESS', dataforecast['timelines']['daily'][0]['time'], dataforecast['timelines']['daily'][5]['time'], 'crawl',  fr'{currentdate}', 'Nhơn'))
                     
                         conn.commit()
                         print("Dữ liệu đã được thêm thành công!")
                         break
                     else :
-                        # 5.4 ghi log thất bại
+                        # 11 ghi log thất bại
                         insert_query = "INSERT INTO log (id_config, status,note,log_date) VALUES (%s, %s, %s,%s)"
                         cursor.execute(
                             insert_query, (1, 'CONNECT_SOURCE_FAIL', 'connect source unsuccess', fr'{currentdate}'))
-            
                         print("Dữ liệu đã được thêm thất bại!")     
                         print('Get data again after:')
                         countdown(600)
                         count +=1
+                        # 12 kiểm tra lần lặp có lớn hơn 10 không
                         if count >= 10 :
-                            # 5.5 ghi dữ liệu Extract thất bại vào control_data_file [status= EXTRACT_FAIL]
-                            insert_query = "INSERT INTO control_data_file (id_config,name, row_count, status,data_range_from,data_range_to,note,create_at,update_at,create_by,update_by) VALUES (%s, %s, %s,%s, %s, %s,%s, %s, %s,%s, %s)"
-                            cursor.execute(insert_query, (1, 'null', 'null', 'EXTRACT_FAIL','null' ,'null', 'crawl', fr'{currentdate}', fr'{currentdate}', 'Nhơn', 'Nhơn'))
+                            # 13 update dữ liệu Extract thất bại vào control_data_file [status= EXTRACT_FAIL]
+                            update_query = "UPDATE control_data_file SET name = %s, row_count = %s, status = %s, data_range_from = %s, data_range_to = %s, note = %s, update_at = %s, update_by = %s WHERE id_config = 1 and status= 'START_EXTRACT' and create_at=CURRENT_DATE"
+                            cursor.execute(update_query, ('null', 'null', 'EXTRACT_FAIL','null' ,'null', 'crawl', fr'{currentdate}', 'Nhơn',))
                             conn.commit()
                             break
                         else :  continue
                 break
             except mysql.connector.Error as err:
-                        
                 print(f"Lỗi thêm dữ liệu: {err}")
                 with open(file_err, 'a') as file:
                  file.write(f'Error: {str(err)}\n')
-                count +=1
-                # 3.1 kiểm tra lần lặp có lớn hơn 10 không?
-                if count >= 10 :break
-                countdown(600)
-            
-
                 continue  
                
             finally:

@@ -77,9 +77,13 @@ if __name__ == '__main__':
                         martcursor.execute(use_query)
                         truncate_query = f"TRUNCATE TABLE aggregate_weatherdata "
                         martcursor.execute(truncate_query)
+                    
                         print('truncat success')
+                        
                         # 8. copy dữ liệu trước ngày hôm nay từ bảng weatherdata sang bảng aggregate_weatherdata ở datamart
                         martcursor.callproc('copyBeforeCurrentDate')
+                       
+                        print('copy data success')
                         # 9. lấy dữ liệu cần insert ngày hôm nay aggregate_weatherdata ở warehouse
                         whcursor = connWh.cursor()
                         source_cursor=whcursor.callproc('getDataAggerateCurrentDate')
@@ -93,7 +97,8 @@ if __name__ == '__main__':
 
                         print('insert success')
                         # 11. đổi tên bảng aggregate_weatherdata và weatherdata ở datamart
-                        martcursor.callproc('renameTable')     
+                        martcursor.callproc('renameTable')  
+                        connM.commit()   
                         print('rename success')                
 
                         # 12. ghi log load mart thành công
