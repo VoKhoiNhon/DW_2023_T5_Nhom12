@@ -138,7 +138,13 @@ def writeLog(idConf=1, status='', note=''):
 
 
 def writeFileLog(status='', note=''):
-    # TODO:
+    current_date = datetime.now().strftime("%d%m%Y")
+    save_directoryEr = r"D:\error_EXTRACT"
+    file_err = fr"{save_directoryEr}\{current_date}_weather_forecast.txt"
+    err = "connect unsuccess"
+    print(f"Lỗi connect db : {err}")
+    with open(file_err, 'a') as file:
+        file.write(f'Error: {str(err)}\n')
     print(note)
 
 
@@ -203,7 +209,7 @@ if __name__ == '__main__':
             # 7.có dữ liệu trả về?
             if config is None:
                 # 7.1 ghi log GET_CONFIG_FAIL
-                writeFileLog('GET_CONFIG_FAIL', 'get config fail')
+                writeLog(idConfig, 'GET_CONFIG_FAIL', 'get config fail')
 
                 # 7.2 kiểm tra số lần lặp còn lại có <= 0 hay không
                 if loopNumGetConfig <= 0:
@@ -216,7 +222,7 @@ if __name__ == '__main__':
                 continue
 
             # 8. ghi log GET_CONFIG_SUCCESS
-            writeFileLog('GET_CONFIG_SUCCESS', 'get config success')
+            writeLog(idConfig, 'GET_CONFIG_SUCCESS', 'get config success')
 
             loopNumGetControlFile = loopNum
             while isContinue:
@@ -226,7 +232,7 @@ if __name__ == '__main__':
                 # 10.có dữ liệu trả về?
                 if dataFileToday is None:
                     # 10.1 ghi log GET_CONFIG_FILE_FAIL
-                    writeFileLog('GET_CONFIG_FILE_FAIL', 'get config file fail')
+                    writeLog(idConfig, 'GET_CONFIG_FILE_FAIL', 'get config file fail')
 
                     # 10.2 kiểm tra số lần lặp còn lại có <= 0 hay không
                     if loopNumGetControlFile <= 0:
@@ -248,7 +254,7 @@ if __name__ == '__main__':
                             jsonData = json.load(file)
                     except:
                         # 12.1 ghi log READ_FILE_FAIL
-                        writeFileLog('READ_FILE_FAIL', 'read file fail')
+                        writeLog(idConfig, 'READ_FILE_FAIL', 'read file fail')
 
                         # 12.2 kiểm tra số lần lặp còn lại có <= 0 hay không
                         if loopNumReadFile <= 0:
@@ -261,7 +267,7 @@ if __name__ == '__main__':
                         continue
 
                     # 13. ghi log READ_FILE_SUCCESS
-                    writeFileLog('READ_FILE_SUCCESS', 'read file success')
+                    writeLog(idConfig, 'READ_FILE_SUCCESS', 'read file success')
 
                     # 14. backup file qua folder theo destination[control_data_file_config]
                     try:
@@ -270,7 +276,7 @@ if __name__ == '__main__':
                                  'backup file ' + dataFileToday['name'] + ' to ' + config['destination'] + ' success')
                     except:
                         # 15.1 ghi log BACKUP_FILE_FAIL
-                        writeFileLog('BACKUP_FILE_FAIL', 'backup file fail')
+                        writeLog(idConfig, 'BACKUP_FILE_FAIL', 'backup file fail')
 
                         # 12.2 kiểm tra số lần lặp còn lại có <= 0 hay không
                         if loopNumReadFile <= 0:
@@ -283,7 +289,7 @@ if __name__ == '__main__':
                         continue
 
                     # 16. ghi log BACKUP_FILE_SUCCESS
-                    writeFileLog('BACKUP_FILE_SUCCESS', 'backup file success')
+                    writeLog(idConfig, 'BACKUP_FILE_SUCCESS', 'backup file success')
 
                     loopNumWriteToDB = loopNum
                     # 17. ghi dữ liệu lấy từ file vào  table load_weather_data[staging]
@@ -293,7 +299,7 @@ if __name__ == '__main__':
                             writeFileToDB(jsonData)
                         except mysql.connector.Error as err:
                             # 18.1 ghi log WRITE_TO_DB_FAIL
-                            writeFileLog('WRITE_TO_DB_FAIL', 'write file to db fail')
+                            writeLog(idConfig, 'WRITE_TO_DB_FAIL', 'write file to db fail')
 
                             # 18.2 kiểm tra số lần lặp còn lại có <= 0 hay không
                             if loopNumWriteToDB <= 0:
@@ -315,8 +321,8 @@ if __name__ == '__main__':
                             dbStaging.commit()
                         except:
                             # 21.1 ghi log TRANSFORM_DATA_FAIL
-                            writeFileLog('TRANSFORM_DATA_FAIL',
-                                         'transform table load_weather_data to table weather_data fail')
+                            writeLog(idConfig, 'TRANSFORM_DATA_FAIL',
+                                     'transform table load_weather_data to table weather_data fail')
 
                             # 18.2 kiểm tra số lần lặp còn lại có <= 0 hay không
                             if loopNumWriteToDB <= 0:
