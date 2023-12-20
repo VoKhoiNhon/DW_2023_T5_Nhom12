@@ -132,7 +132,13 @@ def writeLog(idConf=1, status='', note=''):
 
 
 def writeFileLog(status='', note=''):
-    # TODO:
+    current_date = datetime.now().strftime("%d%m%Y")
+    save_directoryEr = r"D:\error_EXTRACT"
+    file_err = fr"{save_directoryEr}\{current_date}_weather_forecast.txt"
+    err = "connect unsuccess"
+    print(f"Lỗi connect db : {err}")
+    with open(file_err, 'a') as file:
+        file.write(f'Error: {str(err)}\n')
     print(note)
 
 
